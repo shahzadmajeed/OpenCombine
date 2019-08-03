@@ -14,7 +14,7 @@ import OpenCombine
 #endif
 
 @available(macOS 10.15, iOS 13.0, *)
-final class PassthroughSubjectTests: XCTestCase {
+final class PassthroughSubjectTests: PerformanceTestCase {
 
     private typealias Sut = PassthroughSubject<Int, TestingError>
 
@@ -105,18 +105,18 @@ final class PassthroughSubjectTests: XCTestCase {
     }
 
     func testSendFailureCompletion() {
-        let cvs = Sut()
+        let passthrough = Sut()
         let subscriber = TrackingSubscriber(
             receiveSubscription: { subscription in
                 subscription.request(.unlimited)
             }
         )
 
-        cvs.subscribe(subscriber)
+        passthrough.subscribe(subscriber)
 
         XCTAssertEqual(subscriber.history, [.subscription("PassthroughSubject")])
 
-        cvs.send(completion: .failure(.oops))
+        passthrough.send(completion: .failure(.oops))
 
         XCTAssertEqual(subscriber.history, [.subscription("PassthroughSubject"),
                                             .completion(.failure(.oops))])
@@ -426,5 +426,15 @@ final class PassthroughSubjectTests: XCTestCase {
         )
 
         XCTAssertEqual(completions.value.count, 200)
+    }
+
+    func testSubscriptionPerformance() throws {
+        let passthrough = PassthroughSubject<Int, Never>()
+        try testTopLevelPublisherSubscriptionPerformance(passthrough)
+    }
+
+    func testCancelSubscriptionPerformance() throws {
+        let passthrough = PassthroughSubject<Int, Never>()
+        try testTopLevelPublisherCancelSubscriptionPerformance(passthrough)
     }
 }

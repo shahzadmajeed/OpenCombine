@@ -7,3 +7,20 @@ CombineIdentifierTests:
     maxPercentRelativeStandardDeviation: 1e+1
     measurement: 3.5916640190407637e-05
     strategy: minimum
+PassthroughSubjectTests:
+  testCancelSubscriptionPerformance:
+    maxPercentRelativeStandardDeviation: 1e+1
+    measurement: 1.73650283901952e-2
+    strategy: minimum
+  testCancelSubscriptionPerformance | OPENCOMBINE_COMPATIBILITY_TEST:
+    maxPercentRelativeStandardDeviation: 1e+1
+    measurement: 7.14336699456908e-3
+    strategy: minimum
+  testSubscriptionPerformance:
+    maxPercentRelativeStandardDeviation: 1e+1
+    measurement: 8.46982493402902e-2
+    strategy: minimum
+  testSubscriptionPerformance | OPENCOMBINE_COMPATIBILITY_TEST:
+    maxPercentRelativeStandardDeviation: 1e+1
+    measurement: 1.19656949827913e-2
+    strategy: minimum

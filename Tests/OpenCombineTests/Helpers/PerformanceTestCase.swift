@@ -16,23 +16,24 @@ class PerformanceTestCase: GottaGoFast.PerformanceTestCase {
 #endif
 
     @discardableResult
+    @inline(never)
     override func benchmark(file: StaticString = #file,
                             line: UInt = #line,
                             allowFailure: Bool = false,
                             executionCount: Int = 10,
                             strategy: BenchmarkStrategy = .minimum,
                             _ block: () throws -> Void) throws -> BenchmarkResult? {
-#if DEBUG
-        print("⚠️ Benchmarks will only be run in release configuration")
-        return nil
-#else
+        if isDebug {
+            print("⚠️ Benchmarks will only be run in release configuration")
+            return nil
+        }
+
         return try super.benchmark(file: file,
                                    line: line,
                                    allowFailure: allowFailure,
                                    executionCount: executionCount,
                                    strategy: strategy,
                                    block)
-#endif
     }
 
     @inline(never)
@@ -43,9 +44,8 @@ extension XCTestCase {
 
     var isDebug: Bool {
 #if DEBUG
-        return true
+    var isDebug = true
 #else
-        return false
+    var isDebug = false
 #endif
-    }
 }
