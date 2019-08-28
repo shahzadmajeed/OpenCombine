@@ -1087,8 +1087,16 @@ extension Publishers {
 
         public let b: B
 
+        /// The range of elements to publish.
+        public let range: CountableRange<Int>
         public let c: C
 
+        /// Creates a publisher that publishes elements specified by a range.
+        ///
+        /// - Parameters:
+        ///   - upstream: The publisher that this publisher receives elements from.
+        ///   - range: The range of elements to publish.
+        public init(upstream: Upstream, range: CountableRange<Int>)
         public let d: D
 
         public init(_ a: A, _ b: B, _ c: C, _ d: D)
