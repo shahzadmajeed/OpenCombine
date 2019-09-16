@@ -1,3 +1,13 @@
+broadway_lamb-development-MacBook:
+  arch: x86_64
+  busSpeedInMHz: 100
+  cpuCount: 1
+  cpuKind: Intel(R) Core(TM) i5-4308U CPU @ 2.80GHz
+  cpuSpeedInMHz: 2800
+  logicalCPUCoresPerPackage: 8
+  modelCode: MacBookPro11,1
+  physicalCPUCoresPerPackage: 2
+  platform: Darwin 18.7.0
 broadway_lamb-development-iMac:
   arch: x86_64
   busSpeedInMHz: 100

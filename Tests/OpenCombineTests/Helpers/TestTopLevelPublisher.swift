@@ -59,6 +59,7 @@ extension PerformanceTestCase {
                 .append(XCTUnwrap(subscriber.subscriptions.first?.underlying))
         }
 
+        subscriptions.shuffle()
         try benchmark(file: file, line: line, executionCount: 100) {
             for subscription in subscriptions {
                 subscription.cancel()
