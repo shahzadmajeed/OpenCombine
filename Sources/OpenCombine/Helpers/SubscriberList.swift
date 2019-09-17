@@ -5,13 +5,13 @@
 //  Created by Sergej Jaskiewicz on 02.08.2019.
 //
 
-internal struct SubscriberList<Subscription: AnyObject> {
+internal typealias Ticket = Int
 
-    internal typealias Ticket = Int
+internal struct SubscriberList {
 
     // Apple's Combine uses Unmanaged, apparently, to avoid
     // reference counting overhead
-    private var items: [Unmanaged<Subscription>]
+    private var items: [Unmanaged<AnyObject>]
 
     /// This array is used to locate a subscription in the `items` array.
     ///
@@ -28,7 +28,7 @@ internal struct SubscriberList<Subscription: AnyObject> {
     }
 
     /// `element` should be passed retained.
-    mutating func insert(_ element: Unmanaged<Subscription>) -> Ticket {
+    internal mutating func insert(_ element: Unmanaged<AnyObject>) -> Ticket {
         defer {
             nextTicket += 1
         }
@@ -41,7 +41,7 @@ internal struct SubscriberList<Subscription: AnyObject> {
         return nextTicket
     }
 
-    mutating func remove(for ticket: Ticket) {
+    internal mutating func remove(for ticket: Ticket) {
         let index = tickets.binarySearch(ticket)
         guard index != .notFound else { return }
 
@@ -52,23 +52,25 @@ internal struct SubscriberList<Subscription: AnyObject> {
         assert(items.count == tickets.count)
     }
 
-    /// This function must be called before `self` is destroyed, otherwise we have a leak.
-    mutating func removeAll() {
-        items.forEach { $0.release() }
-        items.removeAll()
+    internal var isEmpty: Bool {
+        return items.isEmpty
+    }
+
+    internal func retainAll() {
+        items.forEach { _ = $0.retain() }
     }
 }
 
 extension SubscriberList: Sequence {
 
-    func makeIterator() -> IndexingIterator<[Unmanaged<Subscription>]> {
+    func makeIterator() -> IndexingIterator<[Unmanaged<AnyObject>]> {
         return items.makeIterator()
     }
 
     var underestimatedCount: Int { return items.underestimatedCount }
 
     func withContiguousStorageIfAvailable<Result>(
-        _ body: (UnsafeBufferPointer<Unmanaged<Subscription>>) throws -> Result
+        _ body: (UnsafeBufferPointer<Unmanaged<AnyObject>>) throws -> Result
     ) rethrows -> Result? {
         return try items.withContiguousStorageIfAvailable(body)
     }

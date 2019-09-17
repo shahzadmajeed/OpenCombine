@@ -11,84 +11,101 @@ import COpenCombineHelpers
 ///
 /// Use a `PassthroughSubject` in unit tests when you want a publisher than can publish
 /// specific values on-demand during tests.
-public final class PassthroughSubject<Output, Failure: Error>: Subject  {
+public final class PassthroughSubject<Output, Failure: Error>: Subject {
 
-    private let _lock = UnfairRecursiveLock.allocate()
+    private let lock = UnfairRecursiveLock.allocate()
 
-    private var _completion: Subscribers.Completion<Failure>?
+    private var active = true
 
-    // TODO: Combine uses bag data structure
-    private var _subscriptions: [Conduit] = []
+    private var completion: Subscribers.Completion<Failure>?
 
-    internal var upstreamSubscriptions: [Subscription] = []
+    private var downstreams = SubscriberList()
 
-    internal var hasAnyDownstreamDemand = false
+    private var upstreamSubscriptions = [Subscription]()
+
+    private var hasAnyDownstreamDemand = false
 
     public init() {}
 
     deinit {
-        for subscription in _subscriptions {
-            subscription._downstream = nil
-        }
-        _lock.deallocate()
-    }
-
-    public func send(subscription: Subscription) {
-        _lock.do {
-            upstreamSubscriptions.append(subscription)
-            if hasAnyDownstreamDemand {
-                subscription.request(.unlimited)
-            }
-        }
+//        for subscription in downstreams {
+//            subscription._downstream = nil
+//        }
+		lock.deallocate()
     }
 
     public func receive<Downstream: Subscriber>(subscriber: Downstream)
         where Output == Downstream.Input, Failure == Downstream.Failure
     {
-        _lock.do {
-            if let completion = _completion {
-                subscriber.receive(subscription: Subscriptions.empty)
-                subscriber.receive(completion: completion)
-                return
-            } else {
-                let subscription = Conduit(parent: self,
-                                           downstream: AnySubscriber(subscriber))
+//        lock.do {
+//            if let completion = completion {
+//                subscriber.receive(subscription: Subscriptions.empty)
+//                subscriber.receive(completion: completion)
+//                return
+//            } else {
+//                let subscription = Conduit(self, subscriber)
+//                subscriber.receive(subscription: subscription)
+//            }
+//        }
+    }
 
-                _subscriptions.append(subscription)
-                subscriber.receive(subscription: subscription)
-            }
+    public func send(subscription: Subscription) {
+        lock.lock()
+        upstreamSubscriptions.append(subscription)
+        lock.unlock()
+        if hasAnyDownstreamDemand {
+            subscription.request(.unlimited)
         }
     }
 
     public func send(_ input: Output) {
-        _lock.do {
-            for subscription in _subscriptions
-                where !subscription._isCompleted && subscription._demand > 0
-            {
-                let newDemand = subscription._downstream?.receive(input) ?? .none
-                subscription._demand += newDemand
-                subscription._demand -= 1
-            }
+        lock.lock()
+        guard active, hasAnyDownstreamDemand else {
+            lock.unlock()
+            return
+        }
+        let downstreams = self.downstreams
+        downstreams.retainAll()
+        lock.unlock()
+        for downstream in downstreams {
+            unsafeDowncast(downstream.takeUnretainedValue(), to: Conduit.self)
+                .offer(input)
+            downstream.release()
         }
     }
 
     public func send(completion: Subscribers.Completion<Failure>) {
-        _lock.do {
-            _completion = completion
-            for subscriber in _subscriptions {
-                subscriber._receive(completion: completion)
-            }
+        lock.lock()
+        guard active else {
+            lock.unlock()
+            return
+        }
+        active = false
+        self.completion = completion
+        let downstreams = self.downstreams
+        lock.unlock()
+        for downstream in downstreams {
+            unsafeDowncast(downstream.takeUnretainedValue(), to: Conduit.self)
+                .finish(completion: completion)
+            downstream.release() // Release each conduit one last time
         }
     }
 
-    private func _acknowledgeDownstreamDemand() {
-        _lock.do {
-            guard !hasAnyDownstreamDemand else { return }
-            hasAnyDownstreamDemand = true
-            for subscription in upstreamSubscriptions {
-                subscription.request(.unlimited)
-            }
+    private func acknowledgeDownstreamDemand() {
+        lock.lock()
+        if hasAnyDownstreamDemand {
+            lock.unlock()
+            return
         }
+        hasAnyDownstreamDemand = true
+        lock.unlock()
+        for subscription in upstreamSubscriptions {
+            subscription.request(.unlimited)
+        }
+    }
+
+    private func disassociate(_ ticket: Ticket) {
+//        downstreams.remove(for: ticket)
     }
 }
 
@@ -96,43 +113,116 @@ extension PassthroughSubject {
 
     fileprivate final class Conduit: Subscription {
 
-        fileprivate var _parent: PassthroughSubject?
+        private let erasedParent: Unmanaged<PassthroughSubject>
 
-        fileprivate var _downstream: AnySubscriber<Output, Failure>?
+        private let erasedDownstream:
+            Unmanaged<_ReferencedBasedAnySubscriber<Output, Failure>>
 
-        fileprivate var _demand: Subscribers.Demand = .none
+        private var identity: Ticket!
 
-        fileprivate var _isCompleted: Bool {
-            return _parent == nil
+        private var released = false
+
+        private var demand = Subscribers.Demand.none
+
+        private let lock = unfairLock()
+
+        private let downstreamLock = unfairRecursiveLock()
+
+        fileprivate init<Downstream: Subscriber>(_ parent: PassthroughSubject,
+                                                 _ downstream: Downstream)
+            where Downstream.Input == Output, Downstream.Failure == Failure
+        {
+            erasedParent = .passRetained(parent)
+            erasedDownstream = .passRetained(_ReferencedBasedAnySubscriber(downstream))
+            identity = parent.downstreams.insert(.passRetained(self))
         }
 
-        fileprivate init(parent: PassthroughSubject,
-                         downstream: AnySubscriber<Output, Failure>) {
-            _parent = parent
-            _downstream = downstream
-        }
-
-        fileprivate func _receive(completion: Subscribers.Completion<Failure>) {
-            if !_isCompleted {
-                _parent = nil
-                _downstream?.receive(completion: completion)
+        fileprivate func offer(_ value: Output) {
+            lock.lock()
+            guard demand > 0, !released else {
+                lock.unlock()
+                return
             }
+            demand -= 1
+            let retainedDownstream = erasedDownstream.retain()
+            lock.unlock()
+            downstreamLock.lock()
+            let downstream = retainedDownstream.takeUnretainedValue()
+            let newDemand = downstream.receive(value)
+            retainedDownstream.release()
+            downstreamLock.unlock()
+            guard newDemand > 0 else { return }
+            lock.lock()
+            demand += newDemand
+            lock.unlock()
+        }
+
+        fileprivate func finish(completion: Subscribers.Completion<Failure>) {
+            release {
+                downstreamLock.lock()
+                erasedDownstream.takeUnretainedValue().receive(completion: completion)
+                downstreamLock.unlock()
+            }
+        }
+
+        private func release(_ body: () -> Void) {
+            lock.lock()
+            if released {
+                lock.unlock()
+                return
+            }
+            released = true
+            lock.unlock()
+            // `disassociate` will lock again
+            erasedParent.takeUnretainedValue().disassociate(identity)
+            body()
+            erasedParent.release()
+            erasedDownstream.release()
         }
 
         fileprivate func request(_ demand: Subscribers.Demand) {
-            precondition(demand > 0, "demand must not be zero")
-            _parent?._lock.do {
-                _demand += demand
+            demand.assertNonZero()
+            lock.lock()
+            if released {
+                lock.unlock()
+                return
             }
-            _parent?._acknowledgeDownstreamDemand()
+            self.demand += demand
+            let parent = erasedParent.retain().takeUnretainedValue()
+            lock.unlock()
+            parent.acknowledgeDownstreamDemand()
+            erasedParent.release()
         }
 
         fileprivate func cancel() {
-            _parent = nil
+            release {}
+        }
+
+        deinit {
+            if !released {
+                erasedParent.release()
+                erasedDownstream.release()
+            }
         }
     }
 }
 
 extension PassthroughSubject.Conduit: CustomStringConvertible {
     fileprivate var description: String { return "PassthroughSubject" }
+}
+
+extension PassthroughSubject.Conduit: CustomReflectable {
+    fileprivate var customMirror: Mirror {
+        let children: [(label: String, value: Any)] = [
+            ("parent", erasedParent.takeUnretainedValue()),
+            ("downstream", erasedDownstream.takeUnretainedValue()),
+            ("demand", demand),
+            ("subject", erasedParent.takeUnretainedValue())
+        ]
+        return Mirror(self, children: children)
+    }
+}
+
+extension PassthroughSubject.Conduit: CustomPlaygroundDisplayConvertible {
+    fileprivate var playgroundDescription: Any { return description }
 }

@@ -5,8 +5,8 @@
 //  Created by Sergej Jaskiewicz on 03.08.2019.
 //
 
-import XCTest
 import GottaGoFast
+import XCTest
 
 #if OPENCOMBINE_COMPATIBILITY_TEST
 import Combine
