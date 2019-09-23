@@ -44,8 +44,9 @@ extension XCTestCase {
 
     var isDebug: Bool {
 #if DEBUG
-    var isDebug = true
+        return true
 #else
-    var isDebug = false
+        return false
 #endif
+    }
 }
