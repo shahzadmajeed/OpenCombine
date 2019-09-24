@@ -15,8 +15,7 @@ public final class PassthroughSubject<Output, Failure: Error>: Subject  {
 
     private var _completion: Subscribers.Completion<Failure>?
 
-    // TODO: Combine uses bag data structure
-    private var _subscriptions: [Conduit] = []
+    private var _subscriptions = Set<Conduit>()
 
     internal var upstreamSubscriptions: [Subscription] = []
 
@@ -51,7 +50,7 @@ public final class PassthroughSubject<Output, Failure: Error>: Subject  {
                 let subscription = Conduit(parent: self,
                                            downstream: AnySubscriber(subscriber))
 
-                _subscriptions.append(subscription)
+                _subscriptions.insert(subscription)
                 subscriber.receive(subscription: subscription)
             }
         }
@@ -91,7 +90,14 @@ public final class PassthroughSubject<Output, Failure: Error>: Subject  {
 
 extension PassthroughSubject {
 
-    fileprivate final class Conduit: Subscription {
+    fileprivate final class Conduit: Subscription, Hashable {
+        public static func == (lhs: Conduit, rhs: Conduit) -> Bool {
+            return ObjectIdentifier(lhs) == ObjectIdentifier(rhs)
+        }
+
+        public func hash(into hasher: inout Hasher) {
+            hasher.combine(ObjectIdentifier(self))
+        }
 
         fileprivate var _parent: PassthroughSubject?
 
@@ -111,8 +117,9 @@ extension PassthroughSubject {
 
         fileprivate func _receive(completion: Subscribers.Completion<Failure>) {
             if !_isCompleted {
-                _parent = nil
-                _downstream?.receive(completion: completion)
+                let downstream = _downstream
+                terminate()
+                downstream?.receive(completion: completion)
             }
         }
 
@@ -125,7 +132,13 @@ extension PassthroughSubject {
         }
 
         fileprivate func cancel() {
+            terminate()
+        }
+
+        private func terminate() {
+            _ = _parent?._lock.do { _parent?._subscriptions.remove(self) }
             _parent = nil
+            _downstream = nil
         }
     }
 }
