@@ -124,9 +124,9 @@ extension PassthroughSubject {
 
         private var demand = Subscribers.Demand.none
 
-        private let lock = unfairLock()
+        private let lock = UnfairLock.allocate()
 
-        private let downstreamLock = unfairRecursiveLock()
+        private let downstreamLock = UnfairRecursiveLock.allocate()
 
         fileprivate init<Downstream: Subscriber>(_ parent: PassthroughSubject,
                                                  _ downstream: Downstream)
@@ -203,6 +203,8 @@ extension PassthroughSubject {
                 erasedParent.release()
                 erasedDownstream.release()
             }
+            lock.deallocate()
+            downstreamLock.deallocate()
         }
     }
 }
