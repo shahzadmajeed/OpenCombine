@@ -7,7 +7,7 @@
 
 internal final class _ReferencedBasedAnySubscriber<Input, Failure: Error>: Subscriber {
 
-    private let box: Unmanaged<AnySubscriberBase<Input, Failure>>
+    private let box: Unmanaged<AnyObject>
 
     private let descriptionThunk: () -> String
 
@@ -31,21 +31,27 @@ internal final class _ReferencedBasedAnySubscriber<Input, Failure: Error>: Subsc
 
     @inline(__always)
     internal func receive(subscription: Subscription) {
-
+        unsafeDowncast(box.takeUnretainedValue(),
+                       to: AnySubscriberBase<Input, Failure>.self)
+            .receive(subscription: subscription)
     }
 
     @inline(__always)
     internal func receive(_ input: Input) -> Subscribers.Demand {
-        return box.takeUnretainedValue().receive(input)
+        return unsafeDowncast(box.takeUnretainedValue(),
+                              to: AnySubscriberBase<Input, Failure>.self)
+            .receive(input)
     }
 
     @inline(__always)
     internal func receive(completion: Subscribers.Completion<Failure>) {
-
+        unsafeDowncast(box.takeUnretainedValue(),
+                       to: AnySubscriberBase<Input, Failure>.self)
+            .receive(completion: completion)
     }
 
     deinit {
-
+        box.release()
     }
 }
 

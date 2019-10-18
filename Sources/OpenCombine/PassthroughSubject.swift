@@ -13,9 +13,9 @@ import COpenCombineHelpers
 /// specific values on-demand during tests.
 public final class PassthroughSubject<Output, Failure: Error>: Subject {
 
-    private let lock = UnfairRecursiveLock.allocate()
+    private let lock = UnfairRecursiveLock.allocate() // 0x10
 
-    private var active = true
+    private var active = true // 0x18
 
     private var completion: Subscribers.Completion<Failure>?
 
@@ -28,25 +28,26 @@ public final class PassthroughSubject<Output, Failure: Error>: Subject {
     public init() {}
 
     deinit {
-//        for subscription in downstreams {
-//            subscription._downstream = nil
-//        }
+        for subscription in upstreamSubscriptions {
+            subscription.cancel()
+        }
 		lock.deallocate()
     }
 
     public func receive<Downstream: Subscriber>(subscriber: Downstream)
         where Output == Downstream.Input, Failure == Downstream.Failure
     {
-//        lock.do {
-//            if let completion = completion {
-//                subscriber.receive(subscription: Subscriptions.empty)
-//                subscriber.receive(completion: completion)
-//                return
-//            } else {
-//                let subscription = Conduit(self, subscriber)
-//                subscriber.receive(subscription: subscription)
-//            }
-//        }
+        lock.lock()
+        if active {
+            let subscription = Conduit(self, subscriber)
+            lock.unlock()
+            subscriber.receive(subscription: subscription)
+        } else {
+            let completion = self.completion!
+            lock.unlock()
+            subscriber.receive(subscription: Subscriptions.empty)
+            subscriber.receive(completion: completion)
+        }
     }
 
     public func send(subscription: Subscription) {
@@ -65,7 +66,7 @@ public final class PassthroughSubject<Output, Failure: Error>: Subject {
             return
         }
         let downstreams = self.downstreams
-        downstreams.retainAll()
+        downstreams.retainAll() // TODO: Is that what we want?
         lock.unlock()
         for downstream in downstreams {
             unsafeDowncast(downstream.takeUnretainedValue(), to: Conduit.self)
@@ -85,6 +86,10 @@ public final class PassthroughSubject<Output, Failure: Error>: Subject {
         let downstreams = self.downstreams
         lock.unlock()
         for downstream in downstreams {
+
+            // FIXME: Here we're iterating over downstreams and at the same time
+            // modifying self.downstreams (in the `finish` method).
+            // Fix this?
             unsafeDowncast(downstream.takeUnretainedValue(), to: Conduit.self)
                 .finish(completion: completion)
             downstream.release() // Release each conduit one last time
@@ -105,7 +110,13 @@ public final class PassthroughSubject<Output, Failure: Error>: Subject {
     }
 
     private func disassociate(_ ticket: Ticket) {
-//        downstreams.remove(for: ticket)
+        lock.lock()
+        guard active else {
+            lock.unlock()
+            return
+        }
+        downstreams.remove(for: ticket)
+        lock.unlock()
     }
 }
 
@@ -113,12 +124,11 @@ extension PassthroughSubject {
 
     fileprivate final class Conduit: Subscription {
 
-        private let erasedParent: Unmanaged<PassthroughSubject>
+        private let erasedParent: Unmanaged<AnyObject> // 0x10
 
-        private let erasedDownstream:
-            Unmanaged<_ReferencedBasedAnySubscriber<Output, Failure>>
+        private let erasedDownstream: Unmanaged<AnyObject> // 0x18
 
-        private var identity: Ticket!
+        private var identity: Ticket! // 0x20, tag at 0x28
 
         private var released = false
 
@@ -144,12 +154,14 @@ extension PassthroughSubject {
                 return
             }
             demand -= 1
-            let retainedDownstream = erasedDownstream.retain()
+            let downstream = unsafeDowncast(
+                erasedDownstream.retain().takeUnretainedValue(),
+                to: _ReferencedBasedAnySubscriber<Output, Failure>.self
+            )
             lock.unlock()
             downstreamLock.lock()
-            let downstream = retainedDownstream.takeUnretainedValue()
             let newDemand = downstream.receive(value)
-            retainedDownstream.release()
+            erasedDownstream.release()
             downstreamLock.unlock()
             guard newDemand > 0 else { return }
             lock.lock()
@@ -160,7 +172,9 @@ extension PassthroughSubject {
         fileprivate func finish(completion: Subscribers.Completion<Failure>) {
             release {
                 downstreamLock.lock()
-                erasedDownstream.takeUnretainedValue().receive(completion: completion)
+                unsafeDowncast(erasedDownstream.takeUnretainedValue(),
+                               to: _ReferencedBasedAnySubscriber<Output, Failure>.self)
+                    .receive(completion: completion)
                 downstreamLock.unlock()
             }
         }
@@ -174,7 +188,9 @@ extension PassthroughSubject {
             released = true
             lock.unlock()
             // `disassociate` will lock again
-            erasedParent.takeUnretainedValue().disassociate(identity)
+            unsafeDowncast(erasedParent.takeUnretainedValue(),
+                           to: PassthroughSubject<Output, Failure>.self)
+                .disassociate(identity)
             body()
             erasedParent.release()
             erasedDownstream.release()
@@ -188,7 +204,8 @@ extension PassthroughSubject {
                 return
             }
             self.demand += demand
-            let parent = erasedParent.retain().takeUnretainedValue()
+            let parent = unsafeDowncast(erasedParent.retain().takeUnretainedValue(),
+                                        to: PassthroughSubject<Output, Failure>.self)
             lock.unlock()
             parent.acknowledgeDownstreamDemand()
             erasedParent.release()
@@ -215,7 +232,7 @@ extension PassthroughSubject.Conduit: CustomStringConvertible {
 
 extension PassthroughSubject.Conduit: CustomReflectable {
     fileprivate var customMirror: Mirror {
-        let children: [(label: String, value: Any)] = [
+        let children: [Mirror.Child] = [
             ("parent", erasedParent.takeUnretainedValue()),
             ("downstream", erasedDownstream.takeUnretainedValue()),
             ("demand", demand),

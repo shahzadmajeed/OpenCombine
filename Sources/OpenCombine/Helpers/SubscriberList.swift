@@ -42,7 +42,10 @@ internal struct SubscriberList {
     }
 
     internal mutating func remove(for ticket: Ticket) {
+        // FIXME: Do we really need a binary search here?
+        // Maybe linear will be faster?
         let index = tickets.binarySearch(ticket)
+
         guard index != .notFound else { return }
 
         tickets.remove(at: index)
@@ -50,10 +53,6 @@ internal struct SubscriberList {
         items.remove(at: index)
 
         assert(items.count == tickets.count)
-    }
-
-    internal var isEmpty: Bool {
-        return items.isEmpty
     }
 
     internal func retainAll() {
