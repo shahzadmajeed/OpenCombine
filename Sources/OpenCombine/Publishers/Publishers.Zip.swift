@@ -4,6 +4,8 @@
 //  Created by Eric Patey on 29.08.2019.
 //
 
+import COpenCombineHelpers
+
 extension Publishers {
 
     /// A publisher created by applying the zip function to two upstream publishers.
@@ -434,7 +436,7 @@ extension Publishers.Zip4 {
 private class InnerBase<Downstream: Subscriber>: CustomStringConvertible {
     let description = "Zip"
 
-    private final let lock = Lock(recursive: false)
+    private final let lock = UnfairRecursiveLock.allocate()
     // Locking rules for this class.
     //  - All mutable state must only be accessed while `lock` is held.
     //  - In order to avoid any deadlock potential, it is absolutely forbidden to have
@@ -461,6 +463,10 @@ private class InnerBase<Downstream: Subscriber>: CustomStringConvertible {
 
     init(downstream: Downstream) {
         self.downstream = downstream
+    }
+
+    deinit {
+        lock.deallocate()
     }
 
     fileprivate func lockedUpstreamSubscriptions() -> [ChildSubscription] {

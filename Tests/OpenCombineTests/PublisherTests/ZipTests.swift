@@ -26,38 +26,6 @@ func performConcurrentBlock(_ block: @escaping () -> Void) {
 
 @available(macOS 10.15, iOS 13.0, *)
 final class ZipTests: XCTestCase {
-    static let allTests = [
-        ("testSendsExpectedValues", testSendsExpectedValues),
-        ("testChildDemand", testChildDemand),
-        ("testDownstreamDemandRequestedWhileSendingValue",
-         testDownstreamDemandRequestedWhileSendingValue),
-        ("testUpstreamValueReceivedWhileSendingValue",
-         testUpstreamValueReceivedWhileSendingValue),
-        ("testUpstreamFinishReceivedWhileSendingValue",
-         testUpstreamFinishReceivedWhileSendingValue),
-        ("testImmediateFinishWhenOneChildFinishesWithNoSurplus",
-         testImmediateFinishWhenOneChildFinishesWithNoSurplus),
-        ("testDelayedFinishWhenOneChildFinishesWithSurplus",
-         testDelayedFinishWhenOneChildFinishesWithSurplus),
-        ("testZipCompletesOnlyAfterAllChildrenComplete",
-         testZipCompletesOnlyAfterAllChildrenComplete),
-        ("testUpstreamExceedsDemand", testUpstreamExceedsDemand),
-        ("testBCancelledAfterAFailed", testBCancelledAfterAFailed),
-        ("testAValueAfterAChildFinishedWithoutSurplus",
-         testAValueAfterAChildFinishedWithoutSurplus),
-        ("testBValueAfterAChildFinishedWithoutSurplus",
-         testBValueAfterAChildFinishedWithoutSurplus),
-        ("testAValueAfterAChildFinishedWithSurplus",
-         testAValueAfterAChildFinishedWithSurplus),
-        ("testBValueAfterAChildFinishedWithSurplus",
-         testBValueAfterAChildFinishedWithSurplus),
-        ("testValueAfterFailed", testValueAfterFailed),
-        ("testFinishAfterFinished", testFinishAfterFinished),
-        ("testFinishAfterFailed", testFinishAfterFailed),
-        ("testFailedAfterFinished", testFailedAfterFinished),
-        ("testFailedAfterFailed", testFailedAfterFailed),
-        ("testTestSuiteIncludesAllTests", testTestSuiteIncludesAllTests),
-    ]
     static let arities = (2...4)
 
     struct ChildInfo {
@@ -666,18 +634,5 @@ final class ZipTests: XCTestCase {
 
         XCTAssertEqual(downstreamSubscriber.history, [.subscription("Zip"),
                                                       .completion(.failure(.oops))])
-    }
-
-    // MARK: -
-    func testTestSuiteIncludesAllTests() {
-        // https://oleb.net/blog/2017/03/keeping-xctest-in-sync/
-        #if os(macOS) || os(iOS) || os(tvOS) || os(watchOS)
-        let thisClass = type(of: self)
-        let allTestsCount = thisClass.allTests.count
-        let darwinCount = thisClass.defaultTestSuite.testCaseCount
-        XCTAssertEqual(allTestsCount,
-                       darwinCount,
-                       "\(darwinCount - allTestsCount) tests are missing from allTests")
-        #endif
     }
 }
