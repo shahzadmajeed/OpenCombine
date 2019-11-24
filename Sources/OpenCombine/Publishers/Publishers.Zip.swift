@@ -490,8 +490,10 @@ private class InnerBase<Downstream: Subscriber>: CustomStringConvertible {
         }
     }
 
-    fileprivate final func receivedChildValue(child: ChildSubscription, _ lockedStoreValue: () -> Void)
-        -> Subscribers.Demand
+    fileprivate final func receivedChildValue(
+        child: ChildSubscription,
+        _ lockedStoreValue: () -> Void
+    ) -> Subscribers.Demand
     {
         let shouldProcessQueue: Bool = lock.do {
             lockedStoreValue()
@@ -635,9 +637,8 @@ private class InnerBase<Downstream: Subscriber>: CustomStringConvertible {
                 }
             case .sendRequestUpstream(let demand):
                 lock.do { lockedUpstreamSubscriptions()
-                    .filter { $0.childIndex
-                        != processingValueForChild?.childIndex } }
-                    .forEach { $0.request(demand) }
+                    .filter { $0.childIndex != processingValueForChild?.childIndex }
+                }.forEach { $0.request(demand) }
             }
         }
     }
