@@ -592,7 +592,8 @@ private class InnerBase<Downstream: Subscriber>: CustomStringConvertible {
             }
             return .sendValueDownstream(value)
         case .receivedFinishedFromUpstream:
-            return (processingValueForChild != nil || lockedAreMoreValuesPossible()) ? .noAction : .sendFinishDownstream
+            return (processingValueForChild != nil || lockedAreMoreValuesPossible()) ?
+                .noAction : .sendFinishDownstream
         case .receivedRequestFromDownstream(let demand):
             return .sendRequestUpstream(demand)
         }
