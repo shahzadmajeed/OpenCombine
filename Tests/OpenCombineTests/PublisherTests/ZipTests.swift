@@ -12,18 +12,6 @@ import Combine
 import OpenCombine
 #endif
 
-// TODO: There needs to be some sort of timeout here since, as currently implemented,
-// the tests could deadlock with Apple's implementation. The problem is that using a
-// timeout is a bad smell, and is in fact making the tests inconsistent.
-func performConcurrentBlock(_ block: @escaping () -> Void) {
-    let sem = DispatchSemaphore(value: 0)
-    DispatchQueue.global(qos: .background).async {
-        block()
-        sem.signal()
-    }
-    _ = sem.wait(timeout: DispatchTime.now() + 0.01)
-}
-
 @available(macOS 10.15, iOS 13.0, *)
 final class ZipTests: XCTestCase {
     static let arities = (2...4)
@@ -89,109 +77,75 @@ final class ZipTests: XCTestCase {
 
     func testDownstreamDemandRequestedWhileSendingValue() {
         [Subscribers.Demand.unlimited, .max(10)].forEach { initialDemand in
-            [false, true].forEach { concurrent in
-                let (children, zip) = getChildrenAndZipForArity(2)
-                var downstreamSubscription: Subscription?
-                let block: () -> Void = { downstreamSubscription?.request(.max(666)) }
-                let downstreamSubscriber = TrackingSubscriber(
-                    receiveSubscription: {
-                        downstreamSubscription = $0
-                        $0.request(initialDemand)
-                    },
-                    receiveValue: { _ in
-                        concurrent ? performConcurrentBlock(block) : block()
-                        return Subscribers.Demand.none
-                    }
-                )
+            let (children, zip) = getChildrenAndZipForArity(2)
+            var downstreamSubscription: Subscription?
+            let downstreamSubscriber = TrackingSubscriber(
+                receiveSubscription: {
+                    downstreamSubscription = $0
+                    $0.request(initialDemand)
+                },
+                receiveValue: { _ in
+                    downstreamSubscription?.request(.max(666))
+                    return Subscribers.Demand.none
+                }
+            )
 
-                zip.subscribe(downstreamSubscriber)
+            zip.subscribe(downstreamSubscriber)
 
-                XCTAssertEqual(children[0].publisher.send(1), .none)
-                // Apple will use the result of .receive(_ input:) INSTEAD of sending
-                // .request to the subscription if a request is received WHILE processing
-                // the .receive.
-                // AppleRef: 001
-                XCTAssertEqual(children[1].publisher.send(1), .max(666))
+            XCTAssertEqual(children[0].publisher.send(1), .none)
+            // Apple will use the result of .receive(_ input:) INSTEAD of sending
+            // .request to the subscription if a request is received WHILE processing
+            // the .receive.
+            // AppleRef: 001
+            XCTAssertEqual(children[1].publisher.send(1), .max(666))
 
-                XCTAssertEqual(children[0].subscription.history,
-                               [.requested(initialDemand),
-                                .requested(.max(666))])
-                XCTAssertEqual(children[1].subscription.history,
-                               [.requested(initialDemand)])
-            }
+            XCTAssertEqual(children[0].subscription.history,
+                           [.requested(initialDemand),
+                            .requested(.max(666))])
+            XCTAssertEqual(children[1].subscription.history,
+                           [.requested(initialDemand)])
         }
     }
 
     func testUpstreamValueReceivedWhileSendingValue() {
-        [false, true].forEach { concurrent in
-            let (children, zip) = getChildrenAndZipForArity(2)
+        let (children, zip) = getChildrenAndZipForArity(2)
 
-            // This block will perform operations concurrent with/reentrant to the
-            // downstream receiving a value.
-            let block = {
-                // Can't touch child[1] since this block will be called while handling an
-                // emission caused by a value that child sent. A reentrant/concurrent call
-                // to a `Subscriber` method while within a `Subscriber` method will cause
-                // Combine to abort.
+        let downstreamSubscriber = TrackingSubscriber(
+            receiveSubscription: { $0.request(.unlimited) },
+            receiveValue: { _ in
                 XCTAssertEqual(children[0].publisher.send(1), .none)
+                return Subscribers.Demand.none
             }
+        )
 
-            let downstreamSubscriber = TrackingSubscriber(
-                receiveSubscription: { $0.request(.unlimited) },
-                receiveValue: { _ in
-                    concurrent ? performConcurrentBlock(block) : block()
-                    return Subscribers.Demand.none
-                }
-            )
+        zip.subscribe(downstreamSubscriber)
 
-            zip.subscribe(downstreamSubscriber)
+        XCTAssertEqual(children[0].publisher.send(1), .none)
+        XCTAssertEqual(children[1].publisher.send(1), .none)
 
-            XCTAssertEqual(children[0].publisher.send(1), .none)
-            XCTAssertEqual(children[1].publisher.send(1), .none)
-
-            XCTAssertEqual(downstreamSubscriber.history, [.subscription("Zip"),
-                                                          .value(2)])
-        }
+        XCTAssertEqual(downstreamSubscriber.history, [.subscription("Zip"),
+                                                      .value(2)])
     }
 
     func testUpstreamFinishReceivedWhileSendingValue() {
-        [false, true].forEach { concurrent in
-            let (children, zip) = getChildrenAndZipForArity(2)
+        let (children, zip) = getChildrenAndZipForArity(2)
 
-            // This block will perform operations concurrent with/reentrant to the
-            // downstream receiving a value.
-            let block = {
-                // Can't touch child[1] since this block will be called while handling an
-                // emission caused by a value that child sent. A reentrant/concurrent call
-                // to a `Subscriber` method while within a `Subscriber` method will cause
-                // Combine to abort.
-                children[0].publisher.send(completion: .finished)
+        let downstreamSubscriber = TrackingSubscriber(
+            receiveSubscription: { $0.request(.unlimited) },
+            receiveValue: { _ in
+            children[0].publisher.send(completion: .finished)
+                return Subscribers.Demand.none
             }
+        )
 
-            let downstreamSubscriber = TrackingSubscriber(
-                receiveSubscription: { $0.request(.unlimited) },
-                receiveValue: { _ in
-                    concurrent ? performConcurrentBlock(block) : block()
-                    return Subscribers.Demand.none
-                }
-            )
+        zip.subscribe(downstreamSubscriber)
 
-            zip.subscribe(downstreamSubscriber)
+        XCTAssertEqual(children[0].publisher.send(1), .none)
+        XCTAssertEqual(children[0].publisher.send(1), .none)
+        XCTAssertEqual(children[1].publisher.send(1), .none)
 
-            XCTAssertEqual(children[0].publisher.send(1), .none)
-            // When reentrant, need to send one more on 0 to establish a surplus.
-            // Otherwise, sending finished on 0 will cause Apple's Zip to abort because of
-            // reentrancy (i.e. this code executes in the context of the downstream
-            // subscriber, and an upstream finish with no surplus will induce a downstream
-            // finished
-            if !concurrent {
-                XCTAssertEqual(children[0].publisher.send(1), .none)
-            }
-            XCTAssertEqual(children[1].publisher.send(1), .none)
-
-            XCTAssertEqual(downstreamSubscriber.history, [.subscription("Zip"),
-                                                          .value(2)])
-        }
+        XCTAssertEqual(downstreamSubscriber.history, [.subscription("Zip"),
+                                                      .value(2)])
     }
 
     // NOTE about how/when Apple sends .finished on `Zip`.
